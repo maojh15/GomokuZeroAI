@@ -74,10 +74,6 @@ class PolicyValueModel(nn.Module):
         self.policy_head = PolicyHead(channels, board_height, board_width)
         self.value_head = ValueHead(channels, board_height, board_width)
 
-        print(f"参数量：backend={sum(p.numel() for p in self.backend.parameters())}, "
-              f"policy_head={sum(p.numel() for p in self.policy_head.parameters())}, "
-              f"value_head={sum(p.numel() for p in self.value_head.parameters())}")
-
     def forward(self, x: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
         """
         Return [policy_logits, value_estimate]

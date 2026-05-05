@@ -1,0 +1,49 @@
+# Board and model shape.
+board_height: 15
+board_width: 15
+# Stone encodings for the two players.
+player_values: [1, -1]
+# Input channels should match GomokuRules.encode_state output.
+in_channels: 2
+# Width of the shared convolutional backbone.
+channels: 128
+
+# Device to use. Set to null for auto cuda/cpu selection.
+device: cuda
+# Random seed for Python, NumPy, and PyTorch.
+seed: 0
+# Directory where checkpoints are saved.
+checkpoint_dir: checkpoints
+
+# Number of self-play/train/eval cycles.
+num_iterations: 10
+# Self-play games generated before each training phase.
+self_play_games_per_iteration: 10
+# MCTS simulations per move.
+mcts_playouts: 500
+# PUCT exploration constant.
+c_puct: 5.0
+# Sampling temperature for early self-play moves.
+self_play_temp: 1.0
+# Number of opening moves that use self_play_temp before switching to greedy play.
+self_play_temp_threshold: 12
+# Temperature used during checkpoint evaluation.
+eval_temp: 0.001
+
+# Maximum number of samples kept in replay buffer.
+replay_buffer_size: 10000
+# Add rotations/flips of each sample for data augmentation.
+augment_symmetry: true
+# Training mini-batch size.
+batch_size: 64
+# Epochs over replay-buffer-sized random batches per iteration.
+epochs: 2
+# Optimizer learning rate.
+learning_rate: 0.001
+# Adam weight decay.
+weight_decay: 0.0
+# Games played against the previous checkpoint after each iteration.
+eval_games: 10
+
+# Print training loss every N optimizer steps. Set to 0 to disable step logs.
+log_interval: 10

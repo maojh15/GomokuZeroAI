@@ -86,7 +86,7 @@ class GomokuRules:
     def game_end(self, board: np.ndarray) -> tuple[bool, int]:
         """Return (ended, winner). winner is 0 for draw or unfinished games."""
         board = self.as_board(board)
-        for player in self.players_on_board(board):
+        for player in self.player_values:
             if self.has_five(board, player):
                 return True, int(player)
         if not np.any(board == 0):
@@ -113,7 +113,3 @@ class GomokuRules:
                     r += dr
                     c += dc
         return False
-
-    def players_on_board(self, board: np.ndarray) -> np.ndarray:
-        board = self.as_board(board)
-        return np.asarray([player for player in np.unique(board) if player != 0])

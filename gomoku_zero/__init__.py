@@ -1,0 +1,2 @@
+"""GomokuZeroAI training package."""
+

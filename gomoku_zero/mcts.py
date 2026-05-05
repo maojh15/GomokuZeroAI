@@ -7,8 +7,8 @@ from typing import Iterable, Sequence
 import numpy as np
 import torch
 
-from gomoku_rules import GomokuRules
-from policy_value_model import PolicyValueModel
+from .gomoku_rules import GomokuRules
+from .policy_value_model import PolicyValueModel
 
 
 Move = int
@@ -85,7 +85,7 @@ class MCTS:
         model: PolicyValueModel,
         board_height: int = 15,
         board_width: int = 15,
-        n_playout: int = 400,
+        n_playout: int = 500,
         c_puct: float = 5.0,
         player_values: Sequence[int] = (1, -1),
         device: torch.device | str | None = None,
