@@ -13,25 +13,25 @@ device: cuda
 # Random seed for Python, NumPy, and PyTorch.
 seed: 0
 # Directory where checkpoints are saved.
-checkpoint_dir: checkpoints
+checkpoint_dir: result_15x15/checkpoints
 
 # Number of self-play/train/eval cycles.
-num_iterations: 10
+num_iterations: 70
 # Self-play games generated before each training phase.
-self_play_games_per_iteration: 10
-# Worker processes used for Python self-play backend. C++ backend batches games in one process.
-self_play_workers: 1
+self_play_games_per_iteration: 200
+# Worker processes used for self-play. Use 1 to run self-play in the main process.
+self_play_workers: 20
 # MCTS backend: cpp requires building gomoku_zero._mcts_cpp; python uses the pure Python implementation.
 mcts_backend: cpp
 # MCTS simulations per move.
-mcts_playouts: 500
+mcts_playouts: 2000
 # Leaf states evaluated per neural-network batch when using C++ MCTS.
-mcts_eval_batch_size: 128
+mcts_eval_batch_size: 512
 # Restrict MCTS expansion to empty cells within this Chebyshev distance of existing stones.
 # Set to null to search every legal empty cell.
-mcts_candidate_distance: 2
+mcts_candidate_distance: null
 # Skip full MCTS when there is an immediate winning move or forced one-move block.
-mcts_tactical_shortcuts: true
+mcts_tactical_shortcuts: false
 # PUCT exploration constant.
 c_puct: 5.0
 # Sampling temperature for early self-play moves.
@@ -46,7 +46,7 @@ eval_temp_threshold: 12
 eval_temp: 0.001
 
 # Maximum number of samples kept in replay buffer.
-replay_buffer_size: 10000
+replay_buffer_size: 200000
 # Add rotations/flips of each sample for data augmentation.
 augment_symmetry: true
 # Training mini-batch size.
@@ -54,13 +54,13 @@ batch_size: 64
 # Epochs over replay-buffer-sized random batches per iteration.
 epochs: 2
 # Optimizer learning rate.
-learning_rate: 0.001
+learning_rate: 0.0003
 # Adam weight decay.
 weight_decay: 0.0
 # Games played against the previous checkpoint after each iteration.
 eval_games: 10
-# Worker processes used for Python evaluation backend. C++ backend batches games in one process.
-eval_workers: 1
+# Worker processes used for evaluation games. Use 1 to run evaluation in the main process.
+eval_workers: 10
 
 # Print training loss every N optimizer steps. Set to 0 to disable step logs.
-log_interval: 10
+log_interval: 20
