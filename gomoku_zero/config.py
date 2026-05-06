@@ -19,10 +19,15 @@ class TrainConfig:
 
     num_iterations: int = 10
     self_play_games_per_iteration: int = 10
+    self_play_workers: int = 1
     mcts_playouts: int = 500
+    mcts_candidate_distance: int | None = None
+    mcts_tactical_shortcuts: bool = True
     c_puct: float = 5.0
     self_play_temp: float = 1.0
     self_play_temp_threshold: int = 12
+    eval_explore_temp: float = 1.0
+    eval_temp_threshold: int = 0
     eval_temp: float = 1e-3
 
     replay_buffer_size: int = 10000
@@ -32,6 +37,7 @@ class TrainConfig:
     learning_rate: float = 1e-3
     weight_decay: float = 0.0
     eval_games: int = 10
+    eval_workers: int = 1
 
     log_interval: int = 10
 

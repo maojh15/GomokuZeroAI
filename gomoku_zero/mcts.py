@@ -40,10 +40,21 @@ class MCTSNode:
                 self.children[move] = MCTSNode(prior=float(prior), parent=self)
 
     def select(self, c_puct: float) -> tuple[Move, MCTSNode]:
-        return max(
-            self.children.items(),
-            key=lambda item: item[1].ucb_score(c_puct),
-        )
+        best_move: Move | None = None
+        best_child: MCTSNode | None = None
+        best_score = -float("inf")
+        parent_visits_sqrt = sqrt(max(1, self.visits))
+        for move, child in self.children.items():
+            q = 0.0 if child.visits == 0 else child.value_sum / child.visits
+            exploration = c_puct * child.prior * parent_visits_sqrt / (1 + child.visits)
+            score = -q + exploration
+            if score > best_score:
+                best_score = score
+                best_move = move
+                best_child = child
+        if best_move is None or best_child is None:
+            raise ValueError("Cannot select from a node without children.")
+        return best_move, best_child
 
     def ucb_score(self, c_puct: float) -> float:
         if self.parent is None:
@@ -63,9 +74,12 @@ class MCTSNode:
         self.value_sum += leaf_value
 
     def update_recursive(self, leaf_value: float) -> None:
-        if self.parent is not None:
-            self.parent.update_recursive(-leaf_value)
-        self.update(leaf_value)
+        node: MCTSNode | None = self
+        value = leaf_value
+        while node is not None:
+            node.update(value)
+            value = -value
+            node = node.parent
 
 
 class MCTS:
@@ -90,6 +104,8 @@ class MCTS:
         player_values: Sequence[int] = (1, -1),
         device: torch.device | str | None = None,
         rules: GomokuRules | None = None,
+        candidate_distance: int | None = None,
+        tactical_shortcuts: bool = True,
     ) -> None:
         self.model = model
         self.rules = rules or GomokuRules(
@@ -103,19 +119,40 @@ class MCTS:
         self.n_playout = n_playout
         self.c_puct = c_puct
         self.device = torch.device(device) if device is not None else self._model_device()
+        self.candidate_distance = candidate_distance
+        self.tactical_shortcuts = tactical_shortcuts
         self.root = MCTSNode(prior=1.0)
 
-    def select(self, node: MCTSNode, board: np.ndarray, current_player: int) -> tuple[MCTSNode, np.ndarray, int]:
+    def select(
+        self,
+        node: MCTSNode,
+        board: np.ndarray,
+        current_player: int,
+    ) -> tuple[MCTSNode, np.ndarray, int, Move | None, int | None]:
         """Select a leaf node by repeatedly maximizing PUCT."""
+        last_move: Move | None = None
+        last_player: int | None = None
         while not node.is_leaf():
             move, node = node.select(self.c_puct)
             board = self.rules.next_board(board, move, current_player)
+            last_move = move
+            last_player = current_player
             current_player = self.rules.next_player(current_player)
-        return node, board, current_player
+        return node, board, current_player, last_move, last_player
 
-    def expand(self, node: MCTSNode, board: np.ndarray, current_player: int) -> float:
+    def expand(
+        self,
+        node: MCTSNode,
+        board: np.ndarray,
+        current_player: int,
+        last_move: Move | None = None,
+        last_player: int | None = None,
+    ) -> float:
         """Expand a leaf using model policy and return its value estimate."""
-        ended, winner = self.rules.game_end(board)
+        if last_move is None or last_player is None:
+            ended, winner = self.rules.game_end(board)
+        else:
+            ended, winner = self.rules.game_end_after_move(board, last_move, last_player)
         if ended:
             if winner == 0:
                 return 0.0
@@ -127,8 +164,8 @@ class MCTS:
 
     def simulate(self, board: np.ndarray, current_player: int) -> None:
         """Run one model-guided playout from root and backpropagate the value."""
-        node, leaf_board, leaf_player = self.select(self.root, board, current_player)
-        leaf_value = self.expand(node, leaf_board, leaf_player)
+        node, leaf_board, leaf_player, last_move, last_player = self.select(self.root, board, current_player)
+        leaf_value = self.expand(node, leaf_board, leaf_player, last_move, last_player)
         node.update_recursive(leaf_value)
 
     def get_action_probs(
@@ -139,6 +176,10 @@ class MCTS:
     ) -> tuple[list[Move], np.ndarray]:
         """Run MCTS and return legal moves with their visit-count probabilities."""
         board = self.rules.as_board(board)
+        tactical_move = self._tactical_move(board, current_player)
+        if tactical_move is not None:
+            return [tactical_move], np.asarray([1.0], dtype=np.float32)
+
         for _ in range(self.n_playout):
             self.simulate(board, current_player)
 
@@ -153,7 +194,11 @@ class MCTS:
             probs[int(np.argmax(visits))] = 1.0
         else:
             adjusted = visits ** (1.0 / temp)
-            probs = (adjusted / adjusted.sum()).astype(np.float32)
+            adjusted_sum = float(adjusted.sum())
+            if adjusted_sum <= 0.0 or not np.isfinite(adjusted_sum):
+                probs = np.full(len(visits), 1.0 / len(visits), dtype=np.float32)
+            else:
+                probs = (adjusted / adjusted_sum).astype(np.float32)
 
         return list(moves), probs
 
@@ -190,12 +235,11 @@ class MCTS:
         self.root = MCTSNode(prior=1.0)
 
     def _policy_value(self, board: np.ndarray, current_player: int) -> tuple[list[tuple[Move, float]], float]:
-        legal_moves = self.rules.legal_moves(board)
+        legal_moves = self.rules.candidate_moves(board, self.candidate_distance)
         if len(legal_moves) == 0:
             return [], 0.0
 
         state = self._encode_state(board, current_player)
-        self.model.eval()
         with torch.no_grad():
             policy_logits, value = self.model(state)
             policy = torch.softmax(policy_logits, dim=1).squeeze(0).detach().cpu().numpy()
@@ -210,6 +254,16 @@ class MCTS:
         # Model value is a win rate in [0, 1]; MCTS backs up values in [-1, 1].
         leaf_value = float(value.item()) * 2.0 - 1.0
         return list(zip(legal_moves.tolist(), legal_probs.tolist())), leaf_value
+
+    def _tactical_move(self, board: np.ndarray, current_player: int) -> Move | None:
+        if not self.tactical_shortcuts:
+            return None
+        legal_moves = self.rules.legal_moves(board)
+        winning_move = self.rules.find_winning_move(board, current_player, legal_moves)
+        if winning_move is not None:
+            return winning_move
+        opponent = self.rules.opponent_of(current_player)
+        return self.rules.find_winning_move(board, opponent, legal_moves)
 
     def _encode_state(self, board: np.ndarray, current_player: int) -> torch.Tensor:
         state = self.rules.encode_state(board, current_player)

@@ -70,6 +70,8 @@ Checkpoints are written to `checkpoints/` by default:
 - `iter_0001_15x15.pt`
 - `iter_0002_15x15.pt`
 
+If the checkpoint directory already contains iteration checkpoints for the configured board size, training resumes from the highest iteration number and continues with the next iteration. For example, if `iter_0004_15x15.pt` exists and `num_iterations: 10`, the next run starts at iteration 5.
+
 ## Quick Smoke Config
 
 For a very fast sanity check, temporarily reduce these values in `train_config.yaml`:
@@ -77,6 +79,7 @@ For a very fast sanity check, temporarily reduce these values in `train_config.y
 ```yaml
 num_iterations: 1
 self_play_games_per_iteration: 1
+self_play_workers: 1
 mcts_playouts: 2
 epochs: 1
 eval_games: 2
@@ -92,14 +95,20 @@ This is not useful for strength, but it verifies that self-play, training, check
 - `channels`: model width.
 - `num_iterations`: number of train/eval cycles.
 - `self_play_games_per_iteration`: self-play games generated per iteration.
+- `self_play_workers`: worker processes used for self-play; keep `1` for main-process generation.
 - `mcts_playouts`: MCTS simulations per action.
+- `mcts_candidate_distance`: restrict MCTS expansion to empty cells near existing stones; use `null` to search all legal moves.
+- `mcts_tactical_shortcuts`: skip full MCTS for immediate wins and one-move blocks.
 - `c_puct`: exploration constant for PUCT.
 - `self_play_temp`: sampling temperature used early in self-play.
 - `self_play_temp_threshold`: number of opening moves using `self_play_temp`; later moves use low temperature.
+- `eval_explore_temp`: sampling temperature used for early evaluation moves.
+- `eval_temp_threshold`: number of opening evaluation moves using `eval_explore_temp`.
 - `replay_buffer_size`: maximum stored training samples.
 - `augment_symmetry`: whether to add 8 board symmetry variants per sample.
 - `batch_size`, `epochs`, `learning_rate`: training hyperparameters.
 - `eval_games`: games against the previous checkpoint after each iteration.
+- `eval_workers`: worker processes used for evaluation games.
 
 ## Notes
 

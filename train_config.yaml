@@ -19,14 +19,25 @@ checkpoint_dir: checkpoints
 num_iterations: 10
 # Self-play games generated before each training phase.
 self_play_games_per_iteration: 10
+# Worker processes used for self-play. Use 1 to run self-play in the main process.
+self_play_workers: 1
 # MCTS simulations per move.
 mcts_playouts: 500
+# Restrict MCTS expansion to empty cells within this Chebyshev distance of existing stones.
+# Set to null to search every legal empty cell.
+mcts_candidate_distance: 2
+# Skip full MCTS when there is an immediate winning move or forced one-move block.
+mcts_tactical_shortcuts: true
 # PUCT exploration constant.
 c_puct: 5.0
 # Sampling temperature for early self-play moves.
 self_play_temp: 1.0
 # Number of opening moves that use self_play_temp before switching to greedy play.
 self_play_temp_threshold: 12
+# Sampling temperature for early evaluation moves.
+eval_explore_temp: 1.0
+# Number of opening evaluation moves that use eval_explore_temp.
+eval_temp_threshold: 12
 # Temperature used during checkpoint evaluation.
 eval_temp: 0.001
 
@@ -44,6 +55,8 @@ learning_rate: 0.001
 weight_decay: 0.0
 # Games played against the previous checkpoint after each iteration.
 eval_games: 10
+# Worker processes used for evaluation games. Use 1 to run evaluation in the main process.
+eval_workers: 1
 
 # Print training loss every N optimizer steps. Set to 0 to disable step logs.
 log_interval: 10

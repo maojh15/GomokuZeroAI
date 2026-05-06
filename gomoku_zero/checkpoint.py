@@ -18,6 +18,22 @@ def checkpoint_path(config: TrainConfig, iteration: int | None) -> Path:
     return checkpoint_dir / name
 
 
+def find_latest_iteration_checkpoint(config: TrainConfig) -> tuple[int, Path] | None:
+    checkpoint_dir = Path(config.checkpoint_dir)
+    if not checkpoint_dir.exists():
+        return None
+
+    latest: tuple[int, Path] | None = None
+    pattern = f"iter_*_{config.board_suffix}.pt"
+    for path in checkpoint_dir.glob(pattern):
+        iteration = _iteration_from_path(path, config)
+        if iteration is None:
+            continue
+        if latest is None or iteration > latest[0]:
+            latest = (iteration, path)
+    return latest
+
+
 def save_checkpoint(
     model: PolicyValueModel,
     optimizer: torch.optim.Optimizer | None,
@@ -53,6 +69,19 @@ def load_model_checkpoint(
     return model
 
 
+def load_training_checkpoint(
+    path: str | Path,
+    model: PolicyValueModel,
+    optimizer: torch.optim.Optimizer | None = None,
+    device: torch.device | str = "cpu",
+) -> int | None:
+    checkpoint = torch.load(path, map_location=device)
+    model.load_state_dict(checkpoint["model_state"])
+    if optimizer is not None and "optimizer_state" in checkpoint:
+        optimizer.load_state_dict(checkpoint["optimizer_state"])
+    return checkpoint.get("iteration")
+
+
 def _config_from_checkpoint(checkpoint: dict[str, Any]) -> TrainConfig:
     raw_config = checkpoint.get("config")
     if raw_config is None:
@@ -66,3 +95,16 @@ def _config_from_checkpoint(checkpoint: dict[str, Any]) -> TrainConfig:
     if "player_values" in config_data:
         config_data["player_values"] = tuple(int(value) for value in config_data["player_values"])
     return TrainConfig(**config_data)
+
+
+def _iteration_from_path(path: Path, config: TrainConfig) -> int | None:
+    prefix = "iter_"
+    suffix = f"_{config.board_suffix}.pt"
+    name = path.name
+    if not name.startswith(prefix) or not name.endswith(suffix):
+        return None
+    raw_iteration = name[len(prefix) : -len(suffix)]
+    try:
+        return int(raw_iteration)
+    except ValueError:
+        return None

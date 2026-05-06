@@ -51,11 +51,12 @@ class ValueHead(nn.Module):
 
     def __init__(self, channels: int, board_height: int, board_width: int):
         super().__init__()
+        value_channels = max(4, channels // 16)
         self.net = nn.Sequential(
-            nn.Conv2d(channels, 1, kernel_size=1),
-            nn.ReLU(),
+            nn.Conv2d(channels, value_channels, kernel_size=1),
+            nn.LeakyReLU(negative_slope=0.01),
             nn.Flatten(),
-            nn.Linear(board_height * board_width, 64),
+            nn.Linear(value_channels * board_height * board_width, 64),
             nn.ReLU(),
             nn.Linear(64, 1),
             nn.Sigmoid(),

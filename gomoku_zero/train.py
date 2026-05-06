@@ -6,7 +6,7 @@ import random
 import numpy as np
 import torch
 
-from .checkpoint import load_model_checkpoint, save_checkpoint
+from .checkpoint import find_latest_iteration_checkpoint, load_model_checkpoint, load_training_checkpoint, save_checkpoint
 from .config import TrainConfig, load_config
 from .evaluate import evaluate_models
 from .gomoku_rules import GomokuRules
@@ -52,10 +52,34 @@ def run_training(config: TrainConfig) -> None:
         augment_symmetry=config.augment_symmetry,
     )
 
-    previous_checkpoint = save_checkpoint(model, optimizer, config, iteration=None)
-    print(f"Saved initial checkpoint: {previous_checkpoint}")
+    latest_checkpoint = find_latest_iteration_checkpoint(config)
+    if latest_checkpoint is None:
+        previous_checkpoint = save_checkpoint(model, optimizer, config, iteration=None)
+        start_iteration = 1
+        print(f"Saved initial checkpoint: {previous_checkpoint}")
+    else:
+        latest_iteration, latest_path = latest_checkpoint
+        checkpoint_iteration = load_training_checkpoint(
+            latest_path,
+            model=model,
+            optimizer=optimizer,
+            device=device,
+        )
+        start_iteration = latest_iteration + 1
+        previous_checkpoint = latest_path
+        print(
+            f"Resumed from checkpoint: {latest_path} "
+            f"(iteration={checkpoint_iteration}, next_iteration={start_iteration})"
+        )
 
-    for iteration in range(1, config.num_iterations + 1):
+    if start_iteration > config.num_iterations:
+        print(
+            f"Latest checkpoint already reached iteration {start_iteration - 1}; "
+            f"configured num_iterations={config.num_iterations}."
+        )
+        return
+
+    for iteration in range(start_iteration, config.num_iterations + 1):
         print(f"\n=== iteration {iteration}/{config.num_iterations} ===")
         samples, game_stats = generate_self_play_games(
             model=model,
@@ -66,6 +90,10 @@ def run_training(config: TrainConfig) -> None:
             device=device,
             temp=config.self_play_temp,
             temp_threshold=config.self_play_temp_threshold,
+            candidate_distance=config.mcts_candidate_distance,
+            tactical_shortcuts=config.mcts_tactical_shortcuts,
+            workers=config.self_play_workers,
+            seed=config.seed + iteration * 100000,
         )
         replay_buffer.add_many(samples)
         print(
@@ -103,6 +131,12 @@ def run_training(config: TrainConfig) -> None:
                 c_puct=config.c_puct,
                 device=device,
                 temp=config.eval_temp,
+                explore_temp=config.eval_explore_temp,
+                temp_threshold=config.eval_temp_threshold,
+                candidate_distance=config.mcts_candidate_distance,
+                tactical_shortcuts=config.mcts_tactical_shortcuts,
+                workers=config.eval_workers,
+                seed=config.seed + iteration * 200000,
             )
             print(
                 "eval vs previous: "
