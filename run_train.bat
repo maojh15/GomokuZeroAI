@@ -14,7 +14,7 @@ if errorlevel 1 (
 )
 
 if exist "%LOG_FILE%" del "%LOG_FILE%"
-powershell -NoProfile -ExecutionPolicy Bypass -Command "$configFile = $env:CONFIG_FILE; $logFile = $env:LOG_FILE; python -u train.py --config $configFile 2>&1 | ForEach-Object { $_; Add-Content -LiteralPath $logFile -Value $_ -Encoding UTF8 }; exit $LASTEXITCODE"
+powershell -NoProfile -ExecutionPolicy Bypass -Command "$configFile = $env:CONFIG_FILE; $logFile = $env:LOG_FILE; python -u train.py --config $configFile 2>&1 | ForEach-Object { $line = '[{0}] {1}' -f (Get-Date -Format 'yyyy-MM-dd HH:mm:ss'), $_; $line; Add-Content -LiteralPath $logFile -Value $line -Encoding UTF8 }; exit $LASTEXITCODE"
 set "TRAIN_EXIT=%ERRORLEVEL%"
 
 echo.

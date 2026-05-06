@@ -19,10 +19,14 @@ checkpoint_dir: checkpoints
 num_iterations: 10
 # Self-play games generated before each training phase.
 self_play_games_per_iteration: 10
-# Worker processes used for self-play. Use 1 to run self-play in the main process.
+# Worker processes used for Python self-play backend. C++ backend batches games in one process.
 self_play_workers: 1
+# MCTS backend: cpp requires building gomoku_zero._mcts_cpp; python uses the pure Python implementation.
+mcts_backend: cpp
 # MCTS simulations per move.
 mcts_playouts: 500
+# Leaf states evaluated per neural-network batch when using C++ MCTS.
+mcts_eval_batch_size: 128
 # Restrict MCTS expansion to empty cells within this Chebyshev distance of existing stones.
 # Set to null to search every legal empty cell.
 mcts_candidate_distance: 2
@@ -55,7 +59,7 @@ learning_rate: 0.001
 weight_decay: 0.0
 # Games played against the previous checkpoint after each iteration.
 eval_games: 10
-# Worker processes used for evaluation games. Use 1 to run evaluation in the main process.
+# Worker processes used for Python evaluation backend. C++ backend batches games in one process.
 eval_workers: 1
 
 # Print training loss every N optimizer steps. Set to 0 to disable step logs.

@@ -23,7 +23,7 @@ class PolicyValueBackend(nn.Module):
         return nn.Sequential(
             nn.Conv2d(in_channels, out_channels, kernel_size=3, padding=1),
             nn.LayerNorm([out_channels, board_height, board_width]),
-            nn.ReLU(),
+            nn.SiLU(),
         )
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
@@ -37,7 +37,7 @@ class PolicyHead(nn.Module):
         super().__init__()
         self.net = nn.Sequential(
             nn.Conv2d(channels, 2, kernel_size=1),
-            nn.ReLU(),
+            nn.SiLU(),
             nn.Flatten(),
             nn.Linear(2 * board_height * board_width, board_height * board_width),
         )
@@ -54,10 +54,10 @@ class ValueHead(nn.Module):
         value_channels = max(4, channels // 16)
         self.net = nn.Sequential(
             nn.Conv2d(channels, value_channels, kernel_size=1),
-            nn.LeakyReLU(negative_slope=0.01),
+            nn.SiLU(),
             nn.Flatten(),
             nn.Linear(value_channels * board_height * board_width, 64),
-            nn.ReLU(),
+            nn.SiLU(),
             nn.Linear(64, 1),
             nn.Sigmoid(),
         )

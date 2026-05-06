@@ -104,7 +104,30 @@ def generate_self_play_games(
     tactical_shortcuts: bool = True,
     workers: int = 1,
     seed: int | None = None,
+    backend: str = "python",
+    eval_batch_size: int = 128,
 ) -> tuple[list[TrainingSample], list[SelfPlayStats]]:
+    if backend == "cpp":
+        from .cpp_mcts import generate_self_play_games_cpp
+
+        samples, stats = generate_self_play_games_cpp(
+            model=model,
+            rules=rules,
+            games=games,
+            n_playout=n_playout,
+            c_puct=c_puct,
+            device=device,
+            temp=temp,
+            temp_threshold=temp_threshold,
+            candidate_distance=candidate_distance,
+            tactical_shortcuts=tactical_shortcuts,
+            eval_batch_size=eval_batch_size,
+            seed=seed,
+        )
+        return samples, stats
+    if backend != "python":
+        raise ValueError(f"Unknown MCTS backend: {backend}")
+
     if workers <= 1 or games <= 1:
         if seed is not None:
             np.random.seed(seed)

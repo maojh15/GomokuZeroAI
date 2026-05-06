@@ -94,6 +94,8 @@ def run_training(config: TrainConfig) -> None:
             tactical_shortcuts=config.mcts_tactical_shortcuts,
             workers=config.self_play_workers,
             seed=config.seed + iteration * 100000,
+            backend=config.mcts_backend,
+            eval_batch_size=config.mcts_eval_batch_size,
         )
         replay_buffer.add_many(samples)
         print(
@@ -137,6 +139,8 @@ def run_training(config: TrainConfig) -> None:
                 tactical_shortcuts=config.mcts_tactical_shortcuts,
                 workers=config.eval_workers,
                 seed=config.seed + iteration * 200000,
+                backend=config.mcts_backend,
+                eval_batch_size=config.mcts_eval_batch_size,
             )
             print(
                 "eval vs previous: "

@@ -52,6 +52,12 @@ Use a Python environment with PyTorch installed. Required packages:
 
 ## Run Tests
 
+Build the C++ MCTS extension before using the default C++ backend:
+
+```bash
+python setup.py build_ext --inplace
+```
+
 ```bash
 python -m unittest -v
 ```
@@ -95,8 +101,10 @@ This is not useful for strength, but it verifies that self-play, training, check
 - `channels`: model width.
 - `num_iterations`: number of train/eval cycles.
 - `self_play_games_per_iteration`: self-play games generated per iteration.
-- `self_play_workers`: worker processes used for self-play; keep `1` for main-process generation.
+- `self_play_workers`: worker processes used by the Python backend; the C++ backend batches games in one process.
+- `mcts_backend`: `cpp` uses the Torch Extension backend; `python` uses the reference Python implementation.
 - `mcts_playouts`: MCTS simulations per action.
+- `mcts_eval_batch_size`: leaf states evaluated per neural-network batch in the C++ backend.
 - `mcts_candidate_distance`: restrict MCTS expansion to empty cells near existing stones; use `null` to search all legal moves.
 - `mcts_tactical_shortcuts`: skip full MCTS for immediate wins and one-move blocks.
 - `c_puct`: exploration constant for PUCT.
@@ -108,7 +116,7 @@ This is not useful for strength, but it verifies that self-play, training, check
 - `augment_symmetry`: whether to add 8 board symmetry variants per sample.
 - `batch_size`, `epochs`, `learning_rate`: training hyperparameters.
 - `eval_games`: games against the previous checkpoint after each iteration.
-- `eval_workers`: worker processes used for evaluation games.
+- `eval_workers`: worker processes used by the Python backend; the C++ backend batches games in one process.
 
 ## Notes
 

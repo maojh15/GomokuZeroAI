@@ -20,7 +20,9 @@ class TrainConfig:
     num_iterations: int = 10
     self_play_games_per_iteration: int = 10
     self_play_workers: int = 1
+    mcts_backend: str = "cpp"
     mcts_playouts: int = 500
+    mcts_eval_batch_size: int = 128
     mcts_candidate_distance: int | None = None
     mcts_tactical_shortcuts: bool = True
     c_puct: float = 5.0

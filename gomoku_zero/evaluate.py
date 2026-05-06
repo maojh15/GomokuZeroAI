@@ -43,10 +43,34 @@ def evaluate_models(
     tactical_shortcuts: bool = True,
     workers: int = 1,
     seed: int | None = None,
+    backend: str = "python",
+    eval_batch_size: int = 128,
 ) -> EvaluationResult:
     current_model.eval()
     previous_model.eval()
     explore_temp = temp if explore_temp is None else explore_temp
+
+    if backend == "cpp":
+        from .cpp_mcts import evaluate_models_cpp
+
+        return evaluate_models_cpp(
+            current_model=current_model,
+            previous_model=previous_model,
+            rules=rules,
+            games=games,
+            n_playout=n_playout,
+            c_puct=c_puct,
+            device=device,
+            temp=temp,
+            explore_temp=explore_temp,
+            temp_threshold=temp_threshold,
+            candidate_distance=candidate_distance,
+            tactical_shortcuts=tactical_shortcuts,
+            eval_batch_size=eval_batch_size,
+            seed=seed,
+        )
+    if backend != "python":
+        raise ValueError(f"Unknown MCTS backend: {backend}")
 
     if workers > 1 and games > 1:
         return _evaluate_models_parallel(

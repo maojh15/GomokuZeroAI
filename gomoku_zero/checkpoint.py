@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import fields
 from pathlib import Path
 from typing import Any
 
@@ -82,19 +83,30 @@ def load_training_checkpoint(
     return checkpoint.get("iteration")
 
 
-def _config_from_checkpoint(checkpoint: dict[str, Any]) -> TrainConfig:
+def config_from_checkpoint_payload(
+    checkpoint: dict[str, Any],
+    path: str | Path | None = None,
+) -> TrainConfig:
     raw_config = checkpoint.get("config")
     if raw_config is None:
-        raise KeyError("Checkpoint does not contain a saved config.")
+        location = "" if path is None else f": {path}"
+        raise KeyError(f"Checkpoint does not contain a saved config{location}.")
     if isinstance(raw_config, TrainConfig):
         return raw_config
     if not isinstance(raw_config, dict):
-        raise TypeError("Checkpoint config must be a TrainConfig or dict.")
+        location = "" if path is None else f": {path}"
+        raise TypeError(f"Checkpoint config must be a TrainConfig or dict{location}.")
 
     config_data = dict(raw_config)
     if "player_values" in config_data:
         config_data["player_values"] = tuple(int(value) for value in config_data["player_values"])
+    valid_keys = {field.name for field in fields(TrainConfig)}
+    config_data = {key: value for key, value in config_data.items() if key in valid_keys}
     return TrainConfig(**config_data)
+
+
+def _config_from_checkpoint(checkpoint: dict[str, Any]) -> TrainConfig:
+    return config_from_checkpoint_payload(checkpoint)
 
 
 def _iteration_from_path(path: Path, config: TrainConfig) -> int | None:

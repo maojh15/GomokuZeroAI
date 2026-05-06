@@ -83,6 +83,30 @@ class TrainingPipelineTest(unittest.TestCase):
         self.assertEqual(len(stats), 2)
         self.assertGreater(len(samples), 0)
 
+    def test_cpp_self_play_generates_games(self) -> None:
+        model = self._model()
+        samples, stats = generate_self_play_games(
+            model=model,
+            rules=self.rules,
+            games=2,
+            n_playout=2,
+            c_puct=self.config.c_puct,
+            device="cpu",
+            temp=self.config.self_play_temp,
+            temp_threshold=self.config.self_play_temp_threshold,
+            candidate_distance=1,
+            tactical_shortcuts=True,
+            backend="cpp",
+            eval_batch_size=4,
+            seed=123,
+        )
+        self.assertEqual(len(stats), 2)
+        self.assertGreater(len(samples), 0)
+        self.assertEqual(samples[0].state.shape, (2, 5, 5))
+        self.assertEqual(samples[0].policy.shape, (25,))
+        self.assertGreaterEqual(samples[0].value, 0.0)
+        self.assertLessEqual(samples[0].value, 1.0)
+
     def test_game_end_after_move_matches_full_scan(self) -> None:
         board = np.zeros((5, 5), dtype=np.int8)
         board[2, 0:5] = 1
@@ -212,6 +236,26 @@ class TrainingPipelineTest(unittest.TestCase):
                 parallel_result.current_wins + parallel_result.previous_wins + parallel_result.draws,
                 2,
             )
+
+            cpp_result = evaluate_models(
+                current_model=model,
+                previous_model=previous_model,
+                rules=self.rules,
+                games=2,
+                n_playout=2,
+                c_puct=5.0,
+                device="cpu",
+                temp=1e-3,
+                explore_temp=1.0,
+                temp_threshold=2,
+                candidate_distance=1,
+                tactical_shortcuts=True,
+                backend="cpp",
+                eval_batch_size=4,
+                seed=789,
+            )
+            self.assertEqual(cpp_result.games, 2)
+            self.assertEqual(cpp_result.current_wins + cpp_result.previous_wins + cpp_result.draws, 2)
         finally:
             for path in tmpdir.glob("*"):
                 path.unlink()
