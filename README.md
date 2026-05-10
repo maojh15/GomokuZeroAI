@@ -82,8 +82,6 @@ http://127.0.0.1:8765
 ├── setup.py                      # 构建 C++ MCTS 扩展
 ├── train_config.yaml             # 默认训练配置
 ├── run_train.bat                 # Windows 训练脚本示例
-├── run_play_human.bat            # Windows 启动 Web 对战脚本示例
-├── run_compare_ai.bat            # Windows checkpoint 对比脚本示例
 ├── gomoku_zero/
 │   ├── config.py                 # TrainConfig 与 YAML 加载
 │   ├── gomoku_rules.py           # 棋盘规则、合法落子、胜负判断
@@ -216,14 +214,6 @@ http://127.0.0.1:8765
 - Debug 摆盘模式：手动摆子后检测网络输出。
 - 显示当前步数、网络 value、MCTS root value、AI 选点 policy/visits。
 
-Windows 上可以参考：
-
-```bat
-run_play_human.bat
-```
-
-这个脚本当前写死了本机 conda 环境里的 Python 路径，换机器后需要自行修改。
-
 ## 对比两个 Checkpoint
 
 使用 `tests/compare_ai.py` 可以让两个模型进行模型对模型比赛：
@@ -244,14 +234,6 @@ python tests/compare_ai.py path/to/checkpoint_a.pt path/to/checkpoint_b.pt --gam
 ```bash
 python setup.py build_ext --inplace
 ```
-
-Windows 上可以参考：
-
-```bat
-run_compare_ai.bat
-```
-
-使用前请修改脚本中的 `CHECKPOINT_A`、`CHECKPOINT_B`、`GAMES`、`PLAYOUTS` 和 `workers`。
 
 ## 关键配置说明
 
