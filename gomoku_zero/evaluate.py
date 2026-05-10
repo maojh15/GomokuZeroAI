@@ -20,12 +20,20 @@ class EvaluationResult:
     previous_wins: int
     draws: int
     games: int
+    total_moves: int = 0
+    max_moves: int = 0
 
     @property
     def current_score_rate(self) -> float:
         if self.games == 0:
             return 0.0
         return (self.current_wins + 0.5 * self.draws) / self.games
+
+    @property
+    def average_moves(self) -> float:
+        if self.games == 0:
+            return 0.0
+        return self.total_moves / self.games
 
 
 def evaluate_models(
@@ -97,10 +105,12 @@ def evaluate_models(
     current_wins = 0
     previous_wins = 0
     draws = 0
+    total_moves = 0
+    max_moves = 0
 
     for game_index in range(games):
         current_is_first = game_index % 2 == 0
-        winner_owner = _play_eval_game(
+        winner_owner, moves = _play_eval_game(
             current_model=current_model,
             previous_model=previous_model,
             current_is_first=current_is_first,
@@ -120,12 +130,16 @@ def evaluate_models(
             previous_wins += 1
         else:
             draws += 1
+        total_moves += moves
+        max_moves = max(max_moves, moves)
 
     return EvaluationResult(
         current_wins=current_wins,
         previous_wins=previous_wins,
         draws=draws,
         games=games,
+        total_moves=total_moves,
+        max_moves=max_moves,
     )
 
 
@@ -233,8 +247,10 @@ def _evaluation_worker(args: tuple) -> EvaluationResult:
     current_wins = 0
     previous_wins = 0
     draws = 0
+    total_moves = 0
+    max_moves = 0
     for game_index in game_indices:
-        winner_owner = _play_eval_game(
+        winner_owner, moves = _play_eval_game(
             current_model=current_model,
             previous_model=previous_model,
             current_is_first=game_index % 2 == 0,
@@ -254,11 +270,15 @@ def _evaluation_worker(args: tuple) -> EvaluationResult:
             previous_wins += 1
         else:
             draws += 1
+        total_moves += moves
+        max_moves = max(max_moves, moves)
     return EvaluationResult(
         current_wins=current_wins,
         previous_wins=previous_wins,
         draws=draws,
         games=len(game_indices),
+        total_moves=total_moves,
+        max_moves=max_moves,
     )
 
 
@@ -275,7 +295,7 @@ def _play_eval_game(
     temp_threshold: int,
     candidate_distance: int | None = None,
     tactical_shortcuts: bool = True,
-) -> str:
+) -> tuple[str, int]:
     first_player, second_player = rules.player_values
     current_player_value = first_player if current_is_first else second_player
     previous_player_value = second_player if current_is_first else first_player
@@ -324,8 +344,8 @@ def _play_eval_game(
         ended, winner = rules.game_end_after_move(board, move, player_to_move)
         if ended:
             if winner == 0:
-                return "draw"
-            return "current" if winner == current_player_value else "previous"
+                return "draw", moves
+            return ("current" if winner == current_player_value else "previous"), moves
 
         player_to_move = rules.next_player(player_to_move)
 
@@ -352,4 +372,6 @@ def _merge_results(left: EvaluationResult, right: EvaluationResult) -> Evaluatio
         previous_wins=left.previous_wins + right.previous_wins,
         draws=left.draws + right.draws,
         games=left.games + right.games,
+        total_moves=left.total_moves + right.total_moves,
+        max_moves=max(left.max_moves, right.max_moves),
     )

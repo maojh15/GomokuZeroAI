@@ -22,6 +22,7 @@ class CheckpointInfo:
 
 
 def main() -> None:
+    print("Comparing two GomokuZero checkpoints with balanced model-vs-model games.")
     args = parse_args()
     import_torch()
     from gomoku_zero.checkpoint import load_model_checkpoint
@@ -73,6 +74,9 @@ def main() -> None:
     print(f"A wins: {wins_a:4d} ({rate(wins_a, games)})")
     print(f"B wins: {wins_b:4d} ({rate(wins_b, games)})")
     print(f"Draws : {draws:4d} ({rate(draws, games)})")
+    print()
+    print(f"Average moves: {result.average_moves:.1f}")
+    print(f"Max moves    : {result.max_moves}")
     print()
     print(f"A score rate: {score_a:.2%}  (win + 0.5 * draw)")
     print(f"B score rate: {score_b:.2%}  (win + 0.5 * draw)")

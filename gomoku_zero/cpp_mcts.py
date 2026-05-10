@@ -208,7 +208,16 @@ def evaluate_models_cpp(
     current_wins = sum(1 for state in states if state.winner_owner == "current")
     previous_wins = sum(1 for state in states if state.winner_owner == "previous")
     draws = sum(1 for state in states if state.winner_owner == "draw")
-    return EvaluationResult(current_wins=current_wins, previous_wins=previous_wins, draws=draws, games=games)
+    total_moves = sum(state.moves for state in states)
+    max_moves = max((state.moves for state in states), default=0)
+    return EvaluationResult(
+        current_wins=current_wins,
+        previous_wins=previous_wins,
+        draws=draws,
+        games=games,
+        total_moves=total_moves,
+        max_moves=max_moves,
+    )
 
 
 def _run_search_batch(

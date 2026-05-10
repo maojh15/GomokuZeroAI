@@ -336,6 +336,11 @@ input {
   background: #f8fafc;
 }
 
+.countMetric {
+  color: #334155;
+  background: #f8fafc;
+}
+
 .valueMetric {
   color: #065f46;
   border-color: rgb(20 184 166 / 34%);

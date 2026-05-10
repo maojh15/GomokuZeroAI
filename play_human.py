@@ -51,6 +51,7 @@ class GameSession:
     win_line: list[dict[str, int]] | None
     ai_policy: list[list[float]] | None
     ai_value: float | None
+    ai_mcts_value: float | None
     ai_visits: list[list[int]] | None
     ai_visit_total: int
     ai_selected_policy: float | None
@@ -201,7 +202,7 @@ def list_checkpoints() -> list[dict[str, Any]]:
 
 def create_game(payload: dict[str, Any], default_device: str | None) -> dict[str, Any]:
     checkpoint = resolve_checkpoint(payload.get("checkpoint"))
-    playouts = int(payload.get("playouts", 200))
+    playouts = int(payload.get("playouts", 2000))
     c_puct = float(payload.get("cPuct", 5.0))
     candidate_distance = parse_optional_int(payload.get("candidateDistance"))
     tactical_shortcuts = parse_bool(payload.get("tacticalShortcuts", True))
@@ -254,6 +255,7 @@ def create_game(payload: dict[str, Any], default_device: str | None) -> dict[str
         win_line=None,
         ai_policy=None,
         ai_value=None,
+        ai_mcts_value=None,
         ai_visits=None,
         ai_visit_total=0,
         ai_selected_policy=None,
@@ -291,7 +293,7 @@ def make_hint(payload: dict[str, Any]) -> dict[str, Any]:
         candidate_distance=session.candidate_distance,
         tactical_shortcuts=session.tactical_shortcuts,
     )
-    _, visits, visit_total = select_move_with_visits(
+    _, visits, visit_total, mcts_value = select_move_with_visits(
         mcts=hint_mcts,
         board=session.board,
         player=current_player,
@@ -304,6 +306,7 @@ def make_hint(payload: dict[str, Any]) -> dict[str, Any]:
         "currentPlayer": current_player,
         "policy": policy,
         "value": value,
+        "mctsValue": mcts_value,
         "visits": visits,
         "visitTotal": visit_total,
         "policyTemperature": 1.0,
@@ -343,6 +346,7 @@ def debug_predict(payload: dict[str, Any], default_device: str | None) -> dict[s
         "currentPlayer": current_player,
         "aiPolicy": policy,
         "aiValue": value,
+        "aiMctsValue": None,
         "policyTemperature": 1.0,
     }
 
@@ -365,6 +369,7 @@ def play_human_move(payload: dict[str, Any]) -> dict[str, Any]:
     move = row * session.rules.board_width + col
     session.board = session.rules.next_board(session.board, move, session.human_player)
     session.last_move = move
+    clear_ai_analysis(session)
     session.mcts.update_with_move(move)
     update_game_status(session, move, session.human_player)
 
@@ -379,7 +384,7 @@ def make_ai_move(session: GameSession) -> None:
     if session.status != "playing":
         return
     session.ai_policy, session.ai_value = model_prediction(session, session.ai_player, temperature=1.0)
-    move, session.ai_visits, session.ai_visit_total = select_ai_move_with_visits(session)
+    move, session.ai_visits, session.ai_visit_total, session.ai_mcts_value = select_ai_move_with_visits(session)
     row, col = divmod(move, session.rules.board_width)
     session.ai_selected_policy = float(session.ai_policy[row][col]) if session.ai_policy else None
     session.ai_selected_visits = int(session.ai_visits[row][col]) if session.ai_visits else None
@@ -391,7 +396,17 @@ def make_ai_move(session: GameSession) -> None:
         session.current_player = session.human_player
 
 
-def select_ai_move_with_visits(session: GameSession) -> tuple[int, list[list[int]], int]:
+def clear_ai_analysis(session: GameSession) -> None:
+    session.ai_policy = None
+    session.ai_value = None
+    session.ai_mcts_value = None
+    session.ai_visits = None
+    session.ai_visit_total = 0
+    session.ai_selected_policy = None
+    session.ai_selected_visits = None
+
+
+def select_ai_move_with_visits(session: GameSession) -> tuple[int, list[list[int]], int, float | None]:
     return select_move_with_visits(
         mcts=session.mcts,
         board=session.board,
@@ -405,7 +420,7 @@ def select_move_with_visits(
     board: np.ndarray,
     player: int,
     rules: GomokuRules,
-) -> tuple[int, list[list[int]], int]:
+) -> tuple[int, list[list[int]], int, float | None]:
     moves, move_probs = mcts.get_action_probs(board, player, temp=1e-3)
     if not moves:
         raise ValueError("No legal moves available.")
@@ -420,7 +435,17 @@ def select_move_with_visits(
         visits[move] = 1
         total = 1
 
-    return move, visits.reshape(rules.board_height, rules.board_width).tolist(), total
+    mcts_value = mcts_root_value(mcts)
+    return move, visits.reshape(rules.board_height, rules.board_width).tolist(), total, mcts_value
+
+
+def mcts_root_value(mcts: Any) -> float | None:
+    """Return root value as a win-rate estimate for the root player."""
+    visits = int(getattr(mcts.root, "visits", 0))
+    if visits <= 0:
+        return None
+    q_value = float(getattr(mcts.root, "q"))
+    return max(0.0, min(1.0, (q_value + 1.0) / 2.0))
 
 
 def model_prediction(
@@ -521,6 +546,7 @@ def serialize_session(session: GameSession) -> dict[str, Any]:
         "board": session.board.astype(int).tolist(),
         "boardHeight": session.rules.board_height,
         "boardWidth": session.rules.board_width,
+        "moveCount": int(np.count_nonzero(session.board)),
         "humanPlayer": session.human_player,
         "aiPlayer": session.ai_player,
         "currentPlayer": session.current_player,
@@ -535,6 +561,7 @@ def serialize_session(session: GameSession) -> dict[str, Any]:
         "winLine": session.win_line,
         "aiPolicy": session.ai_policy,
         "aiValue": session.ai_value,
+        "aiMctsValue": session.ai_mcts_value,
         "aiVisits": session.ai_visits,
         "aiVisitTotal": session.ai_visit_total,
         "aiSelectedPolicy": session.ai_selected_policy,

@@ -2,6 +2,7 @@ const checkpointSelect = document.querySelector("#checkpointSelect");
 const modelName = document.querySelector("#modelName");
 const boardEl = document.querySelector("#board");
 const lastMoveLabel = document.querySelector("#lastMoveLabel");
+const moveCountLabel = document.querySelector("#moveCountLabel");
 const policySummary = document.querySelector("#policySummary");
 const visitsSummary = document.querySelector("#visitsSummary");
 const valueSummary = document.querySelector("#valueSummary");
@@ -144,6 +145,7 @@ async function makeMove(row, col) {
   optimisticGame.currentPlayer = optimisticGame.aiPlayer;
   optimisticGame.aiPolicy = null;
   optimisticGame.aiValue = null;
+  optimisticGame.aiMctsValue = null;
   optimisticGame.aiVisits = null;
   optimisticGame.aiVisitTotal = 0;
   optimisticGame.aiSelectedPolicy = null;
@@ -177,6 +179,7 @@ function cloneGame(source) {
     ...source,
     board: source.board.map((boardRow) => [...boardRow]),
     aiPolicy: source.aiPolicy ? source.aiPolicy.map((policyRow) => [...policyRow]) : null,
+    aiMctsValue: source.aiMctsValue,
     aiVisits: source.aiVisits ? source.aiVisits.map((visitRow) => [...visitRow]) : null,
     aiSelectedPolicy: source.aiSelectedPolicy,
     aiSelectedVisits: source.aiSelectedVisits,
@@ -226,6 +229,7 @@ function renderBoard(currentGame) {
   boardEl.innerHTML = "";
   updatePolicySummary(policy, maxPolicy);
   updateVisitsSummary(visits, maxVisits, overlay.visitTotal || 0);
+  updateMoveCountSummary(currentGame);
   updateValueSummary(overlay);
   updateSelectedMoveSummary(currentGame);
   updateHintToggle();
@@ -411,8 +415,19 @@ function updateVisitsSummary(visits, maxVisits, totalVisits) {
     : "等待 visits";
 }
 
+function updateMoveCountSummary(currentGame) {
+  if (!currentGame?.board) {
+    moveCountLabel.textContent = "";
+    return;
+  }
+  const count = currentGame.moveCount ?? countBoardMoves(currentGame.board);
+  moveCountLabel.textContent = debugMode ? `Stones ${count}` : `Moves ${count}`;
+}
+
 function updateValueSummary(currentGame) {
-  if (currentGame?.aiValue === null || currentGame?.aiValue === undefined) {
+  const hasNetworkValue = currentGame?.aiValue !== null && currentGame?.aiValue !== undefined;
+  const hasMctsValue = currentGame?.aiMctsValue !== null && currentGame?.aiMctsValue !== undefined;
+  if (!hasNetworkValue && !hasMctsValue) {
     valueSummary.textContent = "";
     return;
   }
@@ -421,7 +436,17 @@ function updateValueSummary(currentGame) {
     : debugMode
       ? `${stoneName(currentGame.currentPlayer)} Value`
       : "AI Value";
-  valueSummary.textContent = `${prefix} ${(currentGame.aiValue * 100).toFixed(1)}%`;
+  const parts = [];
+  if (hasNetworkValue) parts.push(`Net ${(currentGame.aiValue * 100).toFixed(1)}%`);
+  if (hasMctsValue) parts.push(`MCTS ${(currentGame.aiMctsValue * 100).toFixed(1)}%`);
+  valueSummary.textContent = `${prefix} ${parts.join(" | ")}`;
+}
+
+function countBoardMoves(board) {
+  return board.reduce(
+    (total, row) => total + row.reduce((rowTotal, value) => rowTotal + (value === 0 ? 0 : 1), 0),
+    0,
+  );
 }
 
 function updateSelectedMoveSummary(currentGame) {
@@ -453,6 +478,7 @@ function activeOverlayData(currentGame) {
       visits: hintData.visits,
       visitTotal: hintData.visitTotal,
       aiValue: hintData.value,
+      aiMctsValue: hintData.mctsValue,
       currentPlayer: hintData.currentPlayer,
     };
   }
@@ -461,6 +487,7 @@ function activeOverlayData(currentGame) {
     visits: currentGame?.aiVisits || null,
     visitTotal: currentGame?.aiVisitTotal || 0,
     aiValue: currentGame?.aiValue,
+    aiMctsValue: currentGame?.aiMctsValue,
     currentPlayer: currentGame?.currentPlayer,
   };
 }
@@ -512,6 +539,7 @@ function enterDebugMode(selected) {
       winner: null,
       aiPolicy: null,
       aiValue: null,
+      aiMctsValue: null,
       aiVisits: null,
       aiVisitTotal: 0,
       aiSelectedPolicy: null,
@@ -538,6 +566,7 @@ function enterDebugMode(selected) {
     lastMove: null,
     aiPolicy: null,
     aiValue: null,
+    aiMctsValue: null,
     aiVisits: null,
     aiVisitTotal: 0,
     aiSelectedPolicy: null,
@@ -579,6 +608,7 @@ function setDebugEvalPlayer(value) {
     game.aiPlayer = value;
     game.aiPolicy = null;
     game.aiValue = null;
+    game.aiMctsValue = null;
     game.aiVisits = null;
     game.aiVisitTotal = 0;
     game.aiSelectedPolicy = null;
@@ -594,6 +624,7 @@ function paintDebugCell(row, col) {
   game.lastMove = paintValue === 0 ? null : { row, col };
   game.aiPolicy = null;
   game.aiValue = null;
+  game.aiMctsValue = null;
   game.aiVisits = null;
   game.aiVisitTotal = 0;
   game.aiSelectedPolicy = null;
@@ -622,6 +653,7 @@ async function runDebugPredict() {
       aiPlayer: prediction.currentPlayer,
       aiPolicy: prediction.aiPolicy,
       aiValue: prediction.aiValue,
+      aiMctsValue: prediction.aiMctsValue,
       winLine: null,
     };
     showPolicy = true;

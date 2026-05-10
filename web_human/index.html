@@ -32,7 +32,7 @@
 
         <label class="field">
           <span>MCTS playouts</span>
-          <input id="playoutsInput" type="number" min="1" max="3000" step="1" value="200" />
+          <input id="playoutsInput" type="number" min="1" max="3000" step="1" value="2000" />
         </label>
 
         <label class="field">
@@ -107,6 +107,7 @@
               <strong>对局棋盘</strong>
               <span class="titleMetrics">
                 <span id="lastMoveLabel" class="metric moveMetric">等待开局</span>
+                <span id="moveCountLabel" class="metric countMetric"></span>
                 <span id="valueSummary" class="metric valueMetric"></span>
                 <span id="selectedMoveSummary" class="metric selectedMetric"></span>
                 <span id="policySummary" class="metric policyMetric"></span>
