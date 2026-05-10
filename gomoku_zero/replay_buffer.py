@@ -33,6 +33,15 @@ class ReplayBuffer:
     def __len__(self) -> int:
         return len(self._samples)
 
+    def samples_by_indices(self, indices: Iterable[int]) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+        batch = [self._samples[int(index)] for index in indices]
+        if not batch:
+            raise ValueError("Cannot build an empty replay batch.")
+        states = np.stack([sample.state for sample in batch]).astype(np.float32)
+        policies = np.stack([sample.policy for sample in batch]).astype(np.float32)
+        values = np.asarray([sample.value for sample in batch], dtype=np.float32)
+        return states, policies, values
+
     def add_many(self, samples: Iterable[TrainingSample]) -> None:
         for sample in samples:
             if self.augment_symmetry:
@@ -45,11 +54,7 @@ class ReplayBuffer:
             raise ValueError("Cannot sample from an empty replay buffer.")
         size = min(int(batch_size), len(self._samples))
         indices = np.random.choice(len(self._samples), size=size, replace=False)
-        batch = [self._samples[int(index)] for index in indices]
-        states = np.stack([sample.state for sample in batch]).astype(np.float32)
-        policies = np.stack([sample.policy for sample in batch]).astype(np.float32)
-        values = np.asarray([sample.value for sample in batch], dtype=np.float32)
-        return states, policies, values
+        return self.samples_by_indices(indices)
 
     def _normalize(self, sample: TrainingSample) -> TrainingSample:
         return TrainingSample(

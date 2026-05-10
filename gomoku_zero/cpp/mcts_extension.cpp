@@ -65,6 +65,22 @@ public:
         next_request_id_ = 1;
     }
 
+    void set_position(const std::vector<int8_t>& board, int current_player) {
+        if (static_cast<int>(board.size()) != board_size_) {
+            throw std::invalid_argument("board size does not match CppMCTSGame dimensions");
+        }
+        if (current_player != first_player_ && current_player != second_player_) {
+            throw std::invalid_argument("invalid current player");
+        }
+        board_ = board;
+        current_player_ = current_player;
+        nodes_.clear();
+        nodes_.push_back(Node{1.0, -1, -1, 0, 0.0, {}});
+        root_ = 0;
+        pending_.clear();
+        next_request_id_ = 1;
+    }
+
     py::dict request_leaf() {
         for (int i = 0; i < n_playout_; ++i) {
             py::dict request = request_one_leaf();
@@ -205,6 +221,20 @@ public:
     std::vector<int8_t> board() const { return board_; }
     int current_player() const { return current_player_; }
     int root_visits() const { return nodes_[root_].visits; }
+    double root_q() const {
+        const Node& root = nodes_[root_];
+        return root.visits == 0 ? 0.0 : root.value_sum / static_cast<double>(root.visits);
+    }
+    std::vector<std::pair<int, int>> root_child_visits() const {
+        const Node& root = nodes_[root_];
+        std::vector<std::pair<int, int>> visits;
+        visits.reserve(root.children.size());
+        for (int child_id : root.children) {
+            const Node& child = nodes_[child_id];
+            visits.push_back({child.move, child.visits});
+        }
+        return visits;
+    }
     int n_playout() const { return n_playout_; }
 
 private:
@@ -406,6 +436,7 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
     py::class_<CppMCTSGame>(m, "CppMCTSGame")
         .def(py::init<int, int, int, int, int, double, int, bool>())
         .def("reset", &CppMCTSGame::reset)
+        .def("set_position", &CppMCTSGame::set_position)
         .def("request_leaf", &CppMCTSGame::request_leaf)
         .def("apply_evaluation", &CppMCTSGame::apply_evaluation)
         .def("action_probs", &CppMCTSGame::action_probs)
@@ -415,5 +446,7 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
         .def("board", &CppMCTSGame::board)
         .def("current_player", &CppMCTSGame::current_player)
         .def("root_visits", &CppMCTSGame::root_visits)
+        .def("root_q", &CppMCTSGame::root_q)
+        .def("root_child_visits", &CppMCTSGame::root_child_visits)
         .def("n_playout", &CppMCTSGame::n_playout);
 }

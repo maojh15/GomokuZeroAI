@@ -5,7 +5,7 @@ import json
 import mimetypes
 import sys
 import uuid
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -16,10 +16,12 @@ import numpy as np
 
 from gomoku_zero.config import TrainConfig
 from gomoku_zero.gomoku_rules import GomokuRules
+from gomoku_zero.human_replay import append_human_replay_records
 
 
 REPO_ROOT = Path(__file__).resolve().parent
 STATIC_ROOT = REPO_ROOT / "web_human"
+HUMAN_REPLAY_PATH = REPO_ROOT / "human_replay_data.jsonl"
 DEFAULT_DEVICE = None
 
 
@@ -42,6 +44,10 @@ class GameSession:
     c_puct: float
     candidate_distance: int | None
     tactical_shortcuts: bool
+    eval_batch_size: int
+    human_replay_path: Path
+    mcts_backend: str
+    mcts_backend_note: str | None
     human_player: int
     ai_player: int
     current_player: int
@@ -56,6 +62,15 @@ class GameSession:
     ai_visit_total: int
     ai_selected_policy: float | None
     ai_selected_visits: int | None
+    pending_samples: list[PendingSample] = field(default_factory=list)
+    exported: bool = False
+
+
+@dataclass
+class PendingSample:
+    board: np.ndarray
+    visits: np.ndarray
+    player: int
 
 
 SESSIONS: dict[str, GameSession] = {}
@@ -111,6 +126,9 @@ def make_handler(default_device: str | None):
                     return
                 if parsed.path == "/api/hint":
                     self.write_json(make_hint(self.read_json()))
+                    return
+                if parsed.path == "/api/export-game":
+                    self.write_json(export_game(self.read_json()))
                     return
                 self.write_error(HTTPStatus.NOT_FOUND, "Unknown API endpoint.")
             except Exception as exc:
@@ -182,6 +200,7 @@ def list_checkpoints() -> list[dict[str, Any]]:
                     "channels": info.config.channels,
                     "mctsCandidateDistance": info.config.mcts_candidate_distance,
                     "mctsTacticalShortcuts": info.config.mcts_tactical_shortcuts,
+                    "mctsEvalBatchSize": info.config.mcts_eval_batch_size,
                 }
             )
         except Exception:
@@ -194,6 +213,7 @@ def list_checkpoints() -> list[dict[str, Any]]:
                     "boardHeight": None,
                     "boardWidth": None,
                     "channels": None,
+                    "mctsEvalBatchSize": None,
                 }
             )
     checkpoints.sort(key=lambda item: (item["boardHeight"] or 0, item["iteration"] or -1, item["path"]))
@@ -204,6 +224,8 @@ def create_game(payload: dict[str, Any], default_device: str | None) -> dict[str
     checkpoint = resolve_checkpoint(payload.get("checkpoint"))
     playouts = int(payload.get("playouts", 2000))
     c_puct = float(payload.get("cPuct", 5.0))
+    eval_batch_size = int(payload.get("evalBatchSize", 128))
+    human_replay_path = resolve_human_replay_path(payload.get("humanReplayPath", ""))
     candidate_distance = parse_optional_int(payload.get("candidateDistance"))
     tactical_shortcuts = parse_bool(payload.get("tacticalShortcuts", True))
     human_side = str(payload.get("humanSide", "black"))
@@ -211,10 +233,11 @@ def create_game(payload: dict[str, Any], default_device: str | None) -> dict[str
 
     if playouts <= 0:
         raise ValueError("playouts must be positive.")
+    if eval_batch_size <= 0:
+        raise ValueError("evalBatchSize must be positive.")
 
     info = read_checkpoint_info(checkpoint)
     from gomoku_zero.checkpoint import load_model_checkpoint
-    from gomoku_zero.mcts import MCTS
 
     model = load_model_checkpoint(checkpoint, device=device)
     model.eval()
@@ -226,14 +249,15 @@ def create_game(payload: dict[str, Any], default_device: str | None) -> dict[str
     first_player, second_player = rules.player_values
     human_player = first_player if human_side == "black" else second_player
     ai_player = rules.opponent_of(human_player)
-    mcts = MCTS(
+    mcts, backend, backend_note = create_mcts(
         model=model,
-        n_playout=playouts,
-        c_puct=c_puct,
         device=device,
         rules=rules,
+        n_playout=playouts,
+        c_puct=c_puct,
         candidate_distance=candidate_distance,
         tactical_shortcuts=tactical_shortcuts,
+        eval_batch_size=eval_batch_size,
     )
     session = GameSession(
         game_id=uuid.uuid4().hex,
@@ -246,6 +270,10 @@ def create_game(payload: dict[str, Any], default_device: str | None) -> dict[str
         c_puct=c_puct,
         candidate_distance=candidate_distance,
         tactical_shortcuts=tactical_shortcuts,
+        eval_batch_size=eval_batch_size,
+        human_replay_path=human_replay_path,
+        mcts_backend=backend,
+        mcts_backend_note=backend_note,
         human_player=human_player,
         ai_player=ai_player,
         current_player=first_player,
@@ -260,6 +288,7 @@ def create_game(payload: dict[str, Any], default_device: str | None) -> dict[str
         ai_visit_total=0,
         ai_selected_policy=None,
         ai_selected_visits=None,
+        exported=False,
     )
     SESSIONS[session.game_id] = session
 
@@ -280,18 +309,17 @@ def make_hint(payload: dict[str, Any]) -> dict[str, Any]:
     if session.current_player != session.human_player:
         raise ValueError("Hint is only available on the human player's turn.")
 
-    from gomoku_zero.mcts import MCTS
-
     current_player = session.human_player
     policy, value = model_prediction(session, current_player, temperature=1.0)
-    hint_mcts = MCTS(
+    hint_mcts, hint_backend, hint_note = create_mcts(
         model=session.model,
-        n_playout=session.n_playout,
-        c_puct=session.c_puct,
         device=next(session.model.parameters()).device,
         rules=session.rules,
+        n_playout=session.n_playout,
+        c_puct=session.c_puct,
         candidate_distance=session.candidate_distance,
         tactical_shortcuts=session.tactical_shortcuts,
+        eval_batch_size=session.eval_batch_size,
     )
     _, visits, visit_total, mcts_value = select_move_with_visits(
         mcts=hint_mcts,
@@ -309,6 +337,8 @@ def make_hint(payload: dict[str, Any]) -> dict[str, Any]:
         "mctsValue": mcts_value,
         "visits": visits,
         "visitTotal": visit_total,
+        "mctsBackend": hint_backend,
+        "mctsBackendNote": hint_note,
         "policyTemperature": 1.0,
     }
 
@@ -383,8 +413,15 @@ def play_human_move(payload: dict[str, Any]) -> dict[str, Any]:
 def make_ai_move(session: GameSession) -> None:
     if session.status != "playing":
         return
+    board_before_move = session.board.copy()
     session.ai_policy, session.ai_value = model_prediction(session, session.ai_player, temperature=1.0)
     move, session.ai_visits, session.ai_visit_total, session.ai_mcts_value = select_ai_move_with_visits(session)
+    record_pending_state(
+        session=session,
+        board=board_before_move,
+        player=session.ai_player,
+        visits=visits_to_array(session.rules, session.ai_visits, move),
+    )
     row, col = divmod(move, session.rules.board_width)
     session.ai_selected_policy = float(session.ai_policy[row][col]) if session.ai_policy else None
     session.ai_selected_visits = int(session.ai_visits[row][col]) if session.ai_visits else None
@@ -404,6 +441,73 @@ def clear_ai_analysis(session: GameSession) -> None:
     session.ai_visit_total = 0
     session.ai_selected_policy = None
     session.ai_selected_visits = None
+
+
+def record_pending_state(session: GameSession, board: np.ndarray, player: int, visits: np.ndarray) -> None:
+    session.pending_samples.append(
+        PendingSample(
+            board=np.ascontiguousarray(session.rules.as_board(board), dtype=np.int8),
+            visits=np.ascontiguousarray(visits, dtype=np.int64).reshape(-1),
+            player=int(player),
+        )
+    )
+
+
+def visits_to_array(rules: GomokuRules, visits: list[list[int]] | None, fallback_move: int) -> np.ndarray:
+    if visits is None:
+        array = np.zeros(rules.board_size, dtype=np.int64)
+        array[int(fallback_move)] = 1
+        return array
+    array = np.asarray(visits, dtype=np.int64).reshape(-1)
+    if array.sum() <= 0:
+        array = np.zeros(rules.board_size, dtype=np.int64)
+        array[int(fallback_move)] = 1
+    return array
+
+
+def create_mcts(
+    model: Any,
+    device: str | Any,
+    rules: GomokuRules,
+    n_playout: int,
+    c_puct: float,
+    candidate_distance: int | None,
+    tactical_shortcuts: bool,
+    eval_batch_size: int,
+) -> tuple[Any, str, str | None]:
+    try:
+        from gomoku_zero.cpp_mcts import CppInteractiveMCTS
+
+        return (
+            CppInteractiveMCTS(
+                model=model,
+                rules=rules,
+                n_playout=n_playout,
+                c_puct=c_puct,
+                device=device,
+                candidate_distance=candidate_distance,
+                tactical_shortcuts=tactical_shortcuts,
+                eval_batch_size=eval_batch_size,
+            ),
+            "cpp",
+            None,
+        )
+    except Exception as exc:
+        from gomoku_zero.mcts import MCTS
+
+        return (
+            MCTS(
+                model=model,
+                n_playout=n_playout,
+                c_puct=c_puct,
+                device=device,
+                rules=rules,
+                candidate_distance=candidate_distance,
+                tactical_shortcuts=tactical_shortcuts,
+            ),
+            "python",
+            f"C++ MCTS unavailable, using Python backend: {exc}",
+        )
 
 
 def select_ai_move_with_visits(session: GameSession) -> tuple[int, list[list[int]], int, float | None]:
@@ -427,8 +531,8 @@ def select_move_with_visits(
 
     move = int(np.random.choice(moves, p=move_probs))
     visits = np.zeros(rules.board_size, dtype=np.int32)
-    for child_move, child in mcts.root.children.items():
-        visits[int(child_move)] = int(child.visits)
+    for child_move, visit_count in root_child_visits(mcts).items():
+        visits[int(child_move)] = int(visit_count)
 
     total = int(visits.sum())
     if total == 0:
@@ -441,11 +545,19 @@ def select_move_with_visits(
 
 def mcts_root_value(mcts: Any) -> float | None:
     """Return root value as a win-rate estimate for the root player."""
+    if hasattr(mcts, "root_value"):
+        return mcts.root_value()
     visits = int(getattr(mcts.root, "visits", 0))
     if visits <= 0:
         return None
     q_value = float(getattr(mcts.root, "q"))
     return max(0.0, min(1.0, (q_value + 1.0) / 2.0))
+
+
+def root_child_visits(mcts: Any) -> dict[int, int]:
+    if hasattr(mcts, "root_child_visits"):
+        return mcts.root_child_visits()
+    return {int(move): int(child.visits) for move, child in mcts.root.children.items()}
 
 
 def model_prediction(
@@ -512,6 +624,47 @@ def update_game_status(session: GameSession, move: int, player: int) -> None:
             session.win_line = find_winning_line(session.rules, session.board, move, player)
 
 
+def export_game(payload: dict[str, Any]) -> dict[str, Any]:
+    game_id = str(payload.get("gameId", ""))
+    if game_id not in SESSIONS:
+        raise ValueError("Game not found. Start a new game.")
+
+    session = SESSIONS[game_id]
+    if session.status != "ended":
+        raise ValueError("Only completed games can be exported.")
+    if session.exported:
+        raise ValueError("This game has already been exported.")
+    if not session.pending_samples:
+        raise ValueError("No game samples are available to export.")
+
+    records = [
+        {
+            "board": item.board,
+            "visits": item.visits,
+            "player": item.player,
+            "value": value_target(session.winner or 0, item.player),
+        }
+        for item in session.pending_samples
+    ]
+    count = append_human_replay_records(
+        path=session.human_replay_path,
+        records=records,
+        rules=session.rules,
+    )
+    session.exported = True
+    return {
+        **serialize_session(session),
+        "exportedSamples": count,
+        "exportPath": str(session.human_replay_path.relative_to(REPO_ROOT)),
+    }
+
+
+def value_target(winner: int, player: int) -> float:
+    if winner == 0:
+        return 0.5
+    return 1.0 if winner == player else 0.0
+
+
 def find_winning_line(
     rules: GomokuRules,
     board: np.ndarray,
@@ -566,6 +719,11 @@ def serialize_session(session: GameSession) -> dict[str, Any]:
         "aiVisitTotal": session.ai_visit_total,
         "aiSelectedPolicy": session.ai_selected_policy,
         "aiSelectedVisits": session.ai_selected_visits,
+        "evalBatchSize": session.eval_batch_size,
+        "humanReplayPath": str(session.human_replay_path.relative_to(REPO_ROOT)),
+        "mctsBackend": session.mcts_backend,
+        "mctsBackendNote": session.mcts_backend_note,
+        "exported": session.exported,
         "policyTemperature": 1.0,
     }
 
@@ -585,6 +743,16 @@ def parse_bool(value: Any) -> bool:
     if isinstance(value, str):
         return value.strip().lower() in {"1", "true", "yes", "on"}
     return bool(value)
+
+
+def resolve_human_replay_path(value: Any) -> Path:
+    raw = str(value or "").strip() or str(HUMAN_REPLAY_PATH.relative_to(REPO_ROOT))
+    path = (REPO_ROOT / raw).resolve()
+    if REPO_ROOT not in path.parents and path != REPO_ROOT:
+        raise ValueError("Human replay path must stay inside this repository.")
+    if path.suffix.lower() not in {".jsonl", ".json"}:
+        raise ValueError("Human replay path must end with .jsonl or .json.")
+    return path
 
 
 def resolve_checkpoint(checkpoint_id: Any) -> Path:

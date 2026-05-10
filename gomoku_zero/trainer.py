@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Iterable
 
 import numpy as np
 import torch
@@ -26,21 +27,24 @@ def train_one_iteration(
     epochs: int,
     device: torch.device | str,
     log_interval: int = 10,
+    human_replay_buffer: ReplayBuffer | None = None,
 ) -> TrainMetrics:
     if len(replay_buffer) == 0:
         raise ValueError("Replay buffer is empty; generate self-play data before training.")
 
     device = torch.device(device)
     model.train()
-    steps_per_epoch = max(1, int(np.ceil(len(replay_buffer) / batch_size)))
     policy_losses: list[float] = []
     value_losses: list[float] = []
     total_losses: list[float] = []
     step = 0
 
     for epoch in range(epochs):
-        for _ in range(steps_per_epoch):
-            states, policy_targets, value_targets = replay_buffer.sample_batch(batch_size)
+        for states, policy_targets, value_targets in _iter_training_batches(
+            replay_buffer=replay_buffer,
+            human_replay_buffer=human_replay_buffer,
+            batch_size=batch_size,
+        ):
             states_tensor = torch.from_numpy(states).to(device)
             policy_targets_tensor = torch.from_numpy(policy_targets).to(device)
             value_targets_tensor = torch.from_numpy(value_targets).to(device)
@@ -73,3 +77,39 @@ def train_one_iteration(
         total_loss=float(np.mean(total_losses)),
         steps=step,
     )
+
+
+def _iter_training_batches(
+    replay_buffer: ReplayBuffer,
+    human_replay_buffer: ReplayBuffer | None,
+    batch_size: int,
+) -> Iterable[tuple[np.ndarray, np.ndarray, np.ndarray]]:
+    batch_size = int(batch_size)
+    if batch_size <= 0:
+        raise ValueError("batch_size must be positive.")
+
+    replay_size = len(replay_buffer)
+    human_size = 0 if human_replay_buffer is None else len(human_replay_buffer)
+    total_size = replay_size + human_size
+    order = np.random.permutation(total_size)
+
+    for start in range(0, total_size, batch_size):
+        batch_indices = order[start : start + batch_size]
+        replay_indices = [int(index) for index in batch_indices if int(index) < replay_size]
+        human_indices = [int(index) - replay_size for index in batch_indices if int(index) >= replay_size]
+
+        batches: list[tuple[np.ndarray, np.ndarray, np.ndarray]] = []
+        if replay_indices:
+            batches.append(replay_buffer.samples_by_indices(replay_indices))
+        if human_indices and human_replay_buffer is not None:
+            batches.append(human_replay_buffer.samples_by_indices(human_indices))
+
+        if len(batches) == 1:
+            yield batches[0]
+            continue
+
+        states = np.concatenate([batch[0] for batch in batches], axis=0)
+        policies = np.concatenate([batch[1] for batch in batches], axis=0)
+        values = np.concatenate([batch[2] for batch in batches], axis=0)
+        shuffle = np.random.permutation(len(values))
+        yield states[shuffle], policies[shuffle], values[shuffle]

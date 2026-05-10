@@ -10,6 +10,7 @@ from .checkpoint import find_latest_iteration_checkpoint, load_model_checkpoint,
 from .config import TrainConfig, load_config
 from .evaluate import evaluate_models
 from .gomoku_rules import GomokuRules
+from .human_replay import load_human_replay_samples
 from .policy_value_model import PolicyValueModel
 from .replay_buffer import ReplayBuffer
 from .self_play import generate_self_play_games
@@ -51,6 +52,7 @@ def run_training(config: TrainConfig) -> None:
         board_width=config.board_width,
         augment_symmetry=config.augment_symmetry,
     )
+    human_replay_buffer = _load_human_replay_buffer(config, rules)
 
     latest_checkpoint = find_latest_iteration_checkpoint(config)
     if latest_checkpoint is None:
@@ -112,6 +114,7 @@ def run_training(config: TrainConfig) -> None:
             epochs=config.epochs,
             device=device,
             log_interval=config.log_interval,
+            human_replay_buffer=human_replay_buffer,
         )
         print(
             f"train avg policy_loss={metrics.policy_loss:.4f} "
@@ -174,6 +177,30 @@ def _set_seed(seed: int) -> None:
     torch.manual_seed(seed)
     if torch.cuda.is_available():
         torch.cuda.manual_seed_all(seed)
+
+
+def _load_human_replay_buffer(config: TrainConfig, rules: GomokuRules) -> ReplayBuffer | None:
+    if not config.human_replay_path:
+        return None
+
+    samples = load_human_replay_samples(config.human_replay_path, rules)
+    if not samples:
+        print(f"human replay: no samples loaded from {config.human_replay_path}")
+        return None
+
+    human_replay_buffer = ReplayBuffer(
+        capacity=config.human_replay_buffer_size,
+        board_height=config.board_height,
+        board_width=config.board_width,
+        augment_symmetry=config.augment_symmetry,
+    )
+    human_replay_buffer.add_many(samples)
+    print(
+        f"human replay: raw_samples={len(samples)} "
+        f"buffer_size={len(human_replay_buffer)} "
+        f"path={config.human_replay_path}"
+    )
+    return human_replay_buffer
 
 
 def _print_self_play_stats(game_stats: list) -> None:

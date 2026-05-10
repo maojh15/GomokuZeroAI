@@ -61,7 +61,7 @@ http://127.0.0.1:8765
 
 页面会自动扫描仓库内的 `.pt` 权重文件。在 Checkpoint 下拉框中选择刚下载的模型，点击“开始新局”即可对弈。
 
-如果想要更快的 AI 响应，可以把页面左侧的 `MCTS playouts` 调低；如果想要更强的搜索，可以调高，但每步会更慢。
+人机对战默认优先使用 C++ MCTS 后端，并用 `eval batch size` 控制叶节点批量网络推理大小；如果 C++ 扩展不可用，会自动回退到 Python MCTS。想要更快的 AI 响应，可以把页面左侧的 `MCTS playouts` 调低；如果想要更强的搜索，可以调高，但每步会更慢。
 
 ## 功能概览
 
@@ -207,12 +207,32 @@ http://127.0.0.1:8765
 
 - 选择 checkpoint。
 - 选择人类执黑或执白。
-- 设置 MCTS playouts、`c_puct`、candidate distance、tactical shortcuts。
+- 设置 MCTS playouts、eval batch size、`c_puct`、candidate distance、tactical shortcuts。
 - 开启 `Policy` 显示网络策略概率。
 - 开启 `Visits` 显示 MCTS 访问次数。
 - 开启 `Hint` 查看当前局面推荐。
 - Debug 摆盘模式：手动摆子后检测网络输出。
 - 显示当前步数、网络 value、MCTS root value、AI 选点 policy/visits。
+- 显示当前实际 MCTS 后端；默认使用 C++，扩展不可用时自动回退 Python。
+- 对局结束后点击“导出对局数据”，把当前对局样本追加到 `human_replay_data.jsonl`。
+- 可在设置里修改导出文件路径；路径必须位于仓库目录内，并使用 `.jsonl` 或 `.json` 后缀。
+
+导出的每条样本只保存训练必需信息，并采用紧凑 JSONL 格式：
+
+```json
+{"p":-1,"s":[[112,1],[113,-1]],"pi":[[97,105],[112,936]],"z":0.0}
+```
+
+字段含义如下：
+
+- `p`：该样本的当前玩家，也就是 AI 落子方。
+- `s`：AI 落子前棋盘的稀疏棋子列表，元素为 `[move_index, stone_value]`。
+- `pi`：AI 当步 MCTS visits 的稀疏列表，元素为 `[move_index, visit_count]`，保存的是访问次数，不是概率字符串。
+- `z`：最终胜负得分，从 `p` 视角计算，取值为 `[0, 1]`。
+
+`move_index = row * board_width + col`。训练加载时会根据配置中的棋盘尺寸还原 board，再生成 `state`，并把 `pi` 的 visit count 归一化成 policy。这个格式不兼容旧版 `human_replay_data.jsonl`；如果本地已有旧格式文件，请先删除或改名，否则训练加载时会报格式错误。
+
+为避免把人类落子的 one-hot 选择当成搜索策略监督，导出时只保存 AI 落子前的局面和 AI 的 MCTS visits。后续运行训练时，程序会自动读取 `human_replay_data.jsonl`，放入单独的 human replay buffer。训练遍历数据时会把 human replay buffer 和自我对弈 replay buffer 看作一个逻辑上的合并数据集，但不会把 human 数据直接加入自我对弈 buffer，因此 human 数据不会被后续 self-play 样本挤掉。
 
 ## 对比两个 Checkpoint
 
@@ -262,6 +282,8 @@ python setup.py build_ext --inplace
 - `eval_temp`：评估后续落子的温度，通常接近贪心。
 - `replay_buffer_size`：replay buffer 最大样本数。
 - `augment_symmetry`：是否使用棋盘旋转/翻转增强。
+- `human_replay_path`：人机对局导出的紧凑 JSONL 数据文件；设为空字符串可关闭加载。当前只支持 `p/s/pi/z` 新格式，不兼容旧版完整 `state/policy` 格式。
+- `human_replay_buffer_size`：human replay buffer 最大样本数；会同样受 `augment_symmetry` 扩充。
 - `batch_size`, `epochs`, `learning_rate`, `weight_decay`：训练超参数。
 - `eval_games`：每轮训练后与上一代模型评估的局数。
 - `eval_workers`：评估 worker 数。

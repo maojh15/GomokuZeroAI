@@ -49,6 +49,10 @@ eval_temp: 0.001
 replay_buffer_size: 200000
 # Add rotations/flips of each sample for data augmentation.
 augment_symmetry: true
+# Human-vs-AI exported training samples. Set to empty to disable.
+human_replay_path: human_replay_data.jsonl
+# Maximum augmented samples kept from human replay data.
+human_replay_buffer_size: 50000
 # Training mini-batch size.
 batch_size: 64
 # Epochs over replay-buffer-sized random batches per iteration.

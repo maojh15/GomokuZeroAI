@@ -14,10 +14,16 @@ const overlayHelp = document.querySelector("#overlayHelp");
 const statusTitle = document.querySelector("#statusTitle");
 const statusText = document.querySelector("#statusText");
 const statusDot = document.querySelector("#statusDot");
+const settingsBtn = document.querySelector("#settingsBtn");
+const settingsDialog = document.querySelector("#settingsDialog");
+const settingsCloseBtn = document.querySelector("#settingsCloseBtn");
 const newGameBtn = document.querySelector("#newGameBtn");
+const exportGameBtn = document.querySelector("#exportGameBtn");
 const playoutsInput = document.querySelector("#playoutsInput");
+const evalBatchSizeInput = document.querySelector("#evalBatchSizeInput");
 const cPuctInput = document.querySelector("#cPuctInput");
 const candidateDistanceInput = document.querySelector("#candidateDistanceInput");
+const humanReplayPathInput = document.querySelector("#humanReplayPathInput");
 const tacticalShortcutsInput = document.querySelector("#tacticalShortcutsInput");
 const debugModeInput = document.querySelector("#debugModeInput");
 const debugPredictBtn = document.querySelector("#debugPredictBtn");
@@ -44,7 +50,10 @@ let preDebugGame = null;
 
 sideBlack.addEventListener("click", () => setHumanSide("black"));
 sideWhite.addEventListener("click", () => setHumanSide("white"));
+settingsBtn.addEventListener("click", openSettings);
+settingsCloseBtn.addEventListener("click", closeSettings);
 newGameBtn.addEventListener("click", startGame);
+exportGameBtn.addEventListener("click", exportGameData);
 hintToggle.addEventListener("click", toggleHint);
 debugModeInput.addEventListener("change", () => setDebugMode(debugModeInput.checked));
 debugPredictBtn.addEventListener("click", runDebugPredict);
@@ -73,6 +82,7 @@ renderBoard(null);
 updateHintToggle();
 updatePolicyToggle();
 updateVisitsToggle();
+updateExportButton();
 
 function setHumanSide(side) {
   humanSide = side;
@@ -119,8 +129,10 @@ async function startGame() {
       checkpoint: checkpointSelect.value,
       humanSide,
       playouts: Number(playoutsInput.value),
+      evalBatchSize: Number(evalBatchSizeInput.value),
       cPuct: Number(cPuctInput.value),
       candidateDistance: candidateDistanceInput.value,
+      humanReplayPath: humanReplayPathInput.value,
       tacticalShortcuts: tacticalShortcutsInput.checked,
     });
     clearHint();
@@ -183,6 +195,11 @@ function cloneGame(source) {
     aiVisits: source.aiVisits ? source.aiVisits.map((visitRow) => [...visitRow]) : null,
     aiSelectedPolicy: source.aiSelectedPolicy,
     aiSelectedVisits: source.aiSelectedVisits,
+    mctsBackend: source.mctsBackend,
+    mctsBackendNote: source.mctsBackendNote,
+    evalBatchSize: source.evalBatchSize,
+    humanReplayPath: source.humanReplayPath,
+    exported: source.exported,
     lastMove: source.lastMove ? { ...source.lastMove } : null,
     winLine: source.winLine ? source.winLine.map((point) => ({ ...point })) : null,
   };
@@ -191,16 +208,30 @@ function cloneGame(source) {
 function renderGame() {
   renderBoard(game);
   lastMoveLabel.textContent = makeLastMoveText(game);
+  updateExportButton();
   if (debugMode) {
     setStatus("ready", "Debug 摆盘模式", "摆好局面后点击检测网络输出");
   } else if (game.status === "ended") {
     const result = game.winner === 0 ? "平局" : game.winner === game.humanPlayer ? "你赢了" : "AI 获胜";
-    setStatus("ended", result, "点击开始新局可重新挑战");
+    setStatus("ended", result, `点击开始新局可重新挑战${backendStatusText(game)}`);
   } else if (game.currentPlayer === game.humanPlayer) {
-    setStatus("ready", "轮到你落子", stoneName(game.humanPlayer));
+    setStatus("ready", "轮到你落子", `${stoneName(game.humanPlayer)}${backendStatusText(game)}`);
   } else {
-    setStatus("waiting", "等待 AI", stoneName(game.aiPlayer));
+    setStatus("waiting", "等待 AI", `${stoneName(game.aiPlayer)}${backendStatusText(game)}`);
   }
+}
+
+function openSettings() {
+  if (busy) return;
+  if (typeof settingsDialog.showModal === "function") {
+    settingsDialog.showModal();
+  } else {
+    settingsDialog.setAttribute("open", "");
+  }
+}
+
+function closeSettings() {
+  settingsDialog.close();
 }
 
 function makeLastMoveText(currentGame) {
@@ -415,6 +446,23 @@ function updateVisitsSummary(visits, maxVisits, totalVisits) {
     : "等待 visits";
 }
 
+async function exportGameData() {
+  if (!game || busy || debugMode || game.status !== "ended" || game.exported) return;
+
+  setBusy(true);
+  setStatus("waiting", "正在导出", "追加写入 human_replay_data.jsonl");
+  try {
+    game = await requestJson("/api/export-game", { gameId: game.gameId });
+    renderGame();
+    setStatus("ready", "导出完成", `已追加 ${game.exportedSamples || 0} 条样本到 ${game.exportPath || game.humanReplayPath}`);
+  } catch (error) {
+    setStatus("ended", "导出失败", error.message);
+  } finally {
+    setBusy(false);
+    updateExportButton();
+  }
+}
+
 function updateMoveCountSummary(currentGame) {
   if (!currentGame?.board) {
     moveCountLabel.textContent = "";
@@ -479,6 +527,7 @@ function activeOverlayData(currentGame) {
       visitTotal: hintData.visitTotal,
       aiValue: hintData.value,
       aiMctsValue: hintData.mctsValue,
+      mctsBackend: hintData.mctsBackend,
       currentPlayer: hintData.currentPlayer,
     };
   }
@@ -488,6 +537,7 @@ function activeOverlayData(currentGame) {
     visitTotal: currentGame?.aiVisitTotal || 0,
     aiValue: currentGame?.aiValue,
     aiMctsValue: currentGame?.aiMctsValue,
+    mctsBackend: currentGame?.mctsBackend,
     currentPlayer: currentGame?.currentPlayer,
   };
 }
@@ -500,6 +550,7 @@ function applyCheckpointDefaults() {
   } else {
     candidateDistanceInput.value = String(selected.mctsCandidateDistance);
   }
+  evalBatchSizeInput.value = String(selected.mctsEvalBatchSize || 512);
   tacticalShortcutsInput.checked = selected.mctsTacticalShortcuts !== false;
   if (debugMode) resetDebugBoardFromCheckpoint(selected);
 }
@@ -714,6 +765,19 @@ function updateHintToggle() {
   hintToggle.setAttribute("aria-pressed", String(showHint));
 }
 
+function updateExportButton() {
+  const canExport = Boolean(game && !debugMode && game.status === "ended" && !game.exported);
+  exportGameBtn.disabled = busy || !canExport;
+  exportGameBtn.textContent = game?.exported ? "对局已导出" : "导出对局数据";
+}
+
+function backendStatusText(currentGame) {
+  if (!currentGame?.mctsBackend) return "";
+  const backend = currentGame.mctsBackend === "cpp" ? "C++" : "Python";
+  const fallback = currentGame.mctsBackendNote ? "，C++ 不可用已回退" : "";
+  return ` · ${backend} MCTS${fallback}`;
+}
+
 function formatProbability(value) {
   const percent = value * 100;
   if (percent >= 10) return `${percent.toFixed(0)}%`;
@@ -734,9 +798,11 @@ function overlayTitle(row, col, probability, visitCount) {
 
 function setBusy(nextBusy) {
   busy = nextBusy;
+  settingsBtn.disabled = nextBusy;
   newGameBtn.disabled = nextBusy;
   debugPredictBtn.disabled = nextBusy;
   updateHintToggle();
+  updateExportButton();
   for (const cell of boardEl.querySelectorAll(".cell")) {
     if (nextBusy) cell.disabled = true;
   }

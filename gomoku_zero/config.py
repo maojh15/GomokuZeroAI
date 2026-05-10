@@ -34,6 +34,8 @@ class TrainConfig:
 
     replay_buffer_size: int = 10000
     augment_symmetry: bool = True
+    human_replay_path: str = "human_replay_data.jsonl"
+    human_replay_buffer_size: int = 50000
     batch_size: int = 64
     epochs: int = 2
     learning_rate: float = 1e-3

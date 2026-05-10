@@ -161,8 +161,62 @@ input {
 }
 
 .secondary:disabled {
-  cursor: wait;
+  cursor: not-allowed;
   opacity: 0.65;
+}
+
+.settingsDialog {
+  width: min(420px, calc(100vw - 32px));
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 0;
+  color: var(--ink);
+  background: var(--panel);
+  box-shadow: 0 24px 70px rgb(15 23 42 / 26%);
+}
+
+.settingsDialog::backdrop {
+  background: rgb(15 23 42 / 42%);
+}
+
+.settingsPanel {
+  display: grid;
+  gap: 16px;
+  padding: 18px;
+}
+
+.dialogHeader,
+.dialogActions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.dialogHeader strong {
+  font-size: 16px;
+}
+
+.dialogActions {
+  justify-content: flex-end;
+}
+
+.dialogActions .primary {
+  min-width: 96px;
+}
+
+.iconButton {
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  color: var(--muted);
+  background: #fff;
+  font-size: 22px;
+  line-height: 1;
+  cursor: pointer;
 }
 
 .debugBox {

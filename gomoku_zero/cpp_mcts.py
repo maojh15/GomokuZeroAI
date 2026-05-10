@@ -9,6 +9,8 @@ from .gomoku_rules import GomokuRules
 from .policy_value_model import PolicyValueModel
 from .replay_buffer import TrainingSample
 
+Move = int
+
 
 def require_cpp_mcts():
     try:
@@ -45,6 +47,76 @@ class CppEvalGameState:
     moves: int = 0
     ended: bool = False
     winner_owner: str = "draw"
+
+
+class CppInteractiveMCTS:
+    def __init__(
+        self,
+        model: PolicyValueModel,
+        rules: GomokuRules,
+        n_playout: int,
+        c_puct: float,
+        device: torch.device | str,
+        candidate_distance: int | None = None,
+        tactical_shortcuts: bool = True,
+        eval_batch_size: int = 128,
+    ) -> None:
+        cpp = require_cpp_mcts()
+        distance = -1 if candidate_distance is None else int(candidate_distance)
+        self.model = model
+        self.rules = rules
+        self.device = torch.device(device)
+        self.eval_batch_size = max(1, int(eval_batch_size))
+        self.game = cpp.CppMCTSGame(
+            rules.board_height,
+            rules.board_width,
+            rules.player_values[0],
+            rules.player_values[1],
+            int(n_playout),
+            float(c_puct),
+            distance,
+            bool(tactical_shortcuts),
+        )
+
+    def get_action_probs(self, board: np.ndarray, current_player: int, temp: float = 1e-3) -> tuple[list[Move], np.ndarray]:
+        self._sync_position(board, current_player)
+        tactical = int(self.game.tactical_move())
+        if tactical >= 0:
+            return [tactical], np.asarray([1.0], dtype=np.float32)
+
+        _run_search_batch(
+            search_items=[(self.game, self.model)],
+            device=self.device,
+            board_shape=(self.rules.board_height, self.rules.board_width),
+            batch_size=self.eval_batch_size,
+        )
+        moves, probs = self.game.action_probs(temp)
+        return [int(move) for move in moves], np.asarray(probs, dtype=np.float32)
+
+    def update_with_move(self, last_move: Move | None) -> None:
+        if last_move is None:
+            self.game.reset()
+        else:
+            self.game.apply_move(int(last_move))
+
+    def reset(self) -> None:
+        self.game.reset()
+
+    def root_child_visits(self) -> dict[int, int]:
+        return {int(move): int(visits) for move, visits in self.game.root_child_visits()}
+
+    def root_value(self) -> float | None:
+        visits = int(self.game.root_visits())
+        if visits <= 0:
+            return None
+        q_value = float(self.game.root_q())
+        return max(0.0, min(1.0, (q_value + 1.0) / 2.0))
+
+    def _sync_position(self, board: np.ndarray, current_player: int) -> None:
+        board_array = self.rules.as_board(board).astype(np.int8, copy=False)
+        cpp_board = np.asarray(self.game.board(), dtype=np.int8).reshape(self.rules.board_height, self.rules.board_width)
+        if int(self.game.current_player()) != int(current_player) or not np.array_equal(cpp_board, board_array):
+            self.game.set_position(board_array.reshape(-1).tolist(), int(current_player))
 
 
 def generate_self_play_games_cpp(
